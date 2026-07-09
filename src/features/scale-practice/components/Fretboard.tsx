@@ -32,25 +32,45 @@ export function Fretboard({ pattern, scale, capo, currentIndex, labelMode, strin
   const fretX = (fret: number) => (fret === 0 ? MARGIN_X - 18 : MARGIN_X + (fret - 0.5) * FRET_W)
   const fretLineX = (fret: number) => MARGIN_X + fret * FRET_W
 
+  const boardTop = MARGIN_Y - 12
+  const boardHeight = STRING_GAP * (stringCount - 1) + 24
+  // Gauge-weighted string thickness: low E thickest, high E thinnest
+  const stringWeight = (s: number) => 4 - s * 0.55
+
   return (
-    <div className="fretboard-scroll">
+    <div className="overflow-x-auto rounded-lg glass-panel p-3">
       <svg
-        className="fretboard"
+        className="block h-auto w-full min-w-[760px]"
         viewBox={`0 0 ${width} ${height}`}
         width={width}
         height={height}
         role="img"
         aria-label="Guitar fretboard"
       >
+        <defs>
+          <linearGradient id="fb-wood-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#221e1a" />
+            <stop offset="45%" stopColor="#1e1b18" />
+            <stop offset="100%" stopColor="#161310" />
+          </linearGradient>
+          <linearGradient id="fb-nut-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#d1d5db" />
+            <stop offset="100%" stopColor="#9ca3af" />
+          </linearGradient>
+          <linearGradient id="fb-fret-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#8d90a0" />
+            <stop offset="50%" stopColor="#c3c6d7" />
+            <stop offset="100%" stopColor="#8d90a0" />
+          </linearGradient>
+          <linearGradient id="fb-string-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#a0aab5" />
+            <stop offset="50%" stopColor="#6b7280" />
+            <stop offset="100%" stopColor="#434655" />
+          </linearGradient>
+        </defs>
+
         {/* Board */}
-        <rect
-          x={MARGIN_X}
-          y={MARGIN_Y - 12}
-          width={FRET_W * fretCount}
-          height={STRING_GAP * (stringCount - 1) + 24}
-          rx={6}
-          className="fb-wood"
-        />
+        <rect x={MARGIN_X} y={boardTop} width={FRET_W * fretCount} height={boardHeight} rx={6} className="fb-wood" />
 
         {/* Inlays */}
         {INLAY_FRETS.filter((f) => f <= fretCount).map((f) => (
@@ -69,15 +89,16 @@ export function Fretboard({ pattern, scale, capo, currentIndex, labelMode, strin
           </>
         )}
 
-        {/* Frets + numbers */}
-        {Array.from({ length: fretCount + 1 }, (_, f) => (
-          <line
+        {/* Nut (square-edged, silver) + fret wires (metallic) */}
+        <rect x={fretLineX(0) - 8} y={boardTop} width={8} height={boardHeight} className="fb-nut" />
+        {Array.from({ length: fretCount }, (_, i) => i + 1).map((f) => (
+          <rect
             key={f}
-            x1={fretLineX(f)}
-            y1={MARGIN_Y - 12}
-            x2={fretLineX(f)}
-            y2={height - MARGIN_Y + 12}
-            className={f === 0 ? 'fb-nut' : 'fb-fret'}
+            x={fretLineX(f) - 1.25}
+            y={boardTop}
+            width={2.5}
+            height={boardHeight}
+            className="fb-fret"
           />
         ))}
         {Array.from({ length: fretCount }, (_, i) => i + 1).map((f) => (
@@ -88,14 +109,13 @@ export function Fretboard({ pattern, scale, capo, currentIndex, labelMode, strin
 
         {/* Strings (thicker = lower) */}
         {Array.from({ length: stringCount }, (_, s) => (
-          <line
+          <rect
             key={s}
-            x1={MARGIN_X}
-            y1={stringY(s)}
-            x2={MARGIN_X + FRET_W * fretCount}
-            y2={stringY(s)}
+            x={MARGIN_X}
+            y={stringY(s) - stringWeight(s) / 2}
+            width={FRET_W * fretCount}
+            height={stringWeight(s)}
             className="fb-string"
-            strokeWidth={2.6 - s * 0.35}
           />
         ))}
 
@@ -110,12 +130,7 @@ export function Fretboard({ pattern, scale, capo, currentIndex, labelMode, strin
               rx={9}
               className="fb-capo"
             />
-            <text
-              x={fretX(capo)}
-              y={MARGIN_Y - 22}
-              textAnchor="middle"
-              className="fb-capo-label"
-            >
+            <text x={fretX(capo)} y={MARGIN_Y - 22} textAnchor="middle" className="fb-capo-label">
               capo
             </text>
           </g>
