@@ -6,7 +6,7 @@ import { buildPattern, getPositions } from '../../lib/music/patterns'
 import { playNote } from '../../lib/audio/synth'
 import { usePlayback, type Direction } from './hooks/usePlayback'
 import { Fretboard, type LabelMode } from './components/Fretboard'
-import { ScaleControls } from './components/ScaleControls'
+import { ScaleSelects, BoardSettings } from './components/ScaleControls'
 import { PlaybackControls } from './components/PlaybackControls'
 
 export function ScalePractice() {
@@ -57,35 +57,46 @@ export function ScalePractice() {
   const currentNote = playback.currentIndex !== null ? pattern[playback.currentIndex] : null
 
   return (
-    <section className="scale-practice">
-      <ScaleControls
-        rootPc={rootPc}
-        scaleId={scaleId}
+    <section className="space-y-8">
+      {/* Hero panel: scale title + main selectors */}
+      <div className="glass-panel p-6 rounded-xl flex flex-col lg:flex-row gap-6 items-start lg:items-end justify-between">
+        <div>
+          <h1 className="font-display text-3xl md:text-display-lg font-bold tracking-tight mb-2">
+            {pitchClassName(rootPc)} {scale.name}
+          </h1>
+          <p className="text-on-surface-variant">
+            {capo > 0 ? (
+              <>
+                Capo {capo} — sounds as{' '}
+                <strong className="text-tertiary font-semibold">
+                  {soundingRoot} {scale.name}
+                </strong>
+              </>
+            ) : (
+              'Pick a root and scale, then hit play.'
+            )}
+          </p>
+        </div>
+        <ScaleSelects
+          rootPc={rootPc}
+          scaleId={scaleId}
+          onRootChange={setRootPc}
+          onScaleChange={setScaleId}
+        />
+      </div>
+
+      {/* Fretboard settings */}
+      <BoardSettings
         positionIndex={safePositionIndex}
         positions={positions}
         capo={capo}
         labelMode={labelMode}
-        onRootChange={setRootPc}
-        onScaleChange={setScaleId}
         onPositionChange={setPositionIndex}
         onCapoChange={setCapo}
         onLabelModeChange={setLabelMode}
       />
 
-      <div className="scale-summary">
-        <h2>
-          {pitchClassName(rootPc)} {scale.name}
-        </h2>
-        {capo > 0 && (
-          <span className="sounding">
-            capo {capo} — sounds as <strong>{soundingRoot} {scale.name}</strong>
-          </span>
-        )}
-        <span className="current-note">
-          {currentNote ? `Now: ${midiName(currentNote.midi)} (string ${6 - currentNote.string}, fret ${capo + currentNote.fret})` : ' '}
-        </span>
-      </div>
-
+      {/* Fretboard */}
       <Fretboard
         pattern={pattern}
         scale={scale}
@@ -94,6 +105,13 @@ export function ScalePractice() {
         labelMode={labelMode}
         stringCount={STANDARD_TUNING.openMidi.length}
       />
+
+      {/* Now-playing readout */}
+      <p className="font-mono text-label-sm text-on-surface-variant min-h-4 px-2" aria-live="polite">
+        {currentNote
+          ? `NOW: ${midiName(currentNote.midi)} — STRING ${6 - currentNote.string}, FRET ${capo + currentNote.fret}`
+          : ' '}
+      </p>
 
       <PlaybackControls
         playback={playback}
