@@ -1,10 +1,15 @@
 /** Detection range: below drop-tuning D2 (73 Hz) up past high fretted notes. */
 export const MIN_FREQ = 60
 export const MAX_FREQ = 1000
-/** Buffers quieter than this RMS are treated as silence. */
-export const RMS_GATE = 0.01
+/**
+ * Buffers quieter than this RMS are treated as silence. Kept near digital
+ * silence: with autoGainControl disabled, real mics deliver an acoustic
+ * guitar at RMS 0.002–0.01, and the NSDF below is amplitude-normalized, so
+ * the clarity threshold — not level — is what rejects noise.
+ */
+export const RMS_GATE = 0.001
 /** Minimum NSDF peak value to accept a reading as pitched. */
-export const CLARITY_THRESHOLD = 0.9
+export const CLARITY_THRESHOLD = 0.85
 
 export function computeRms(buf: Float32Array): number {
   let sum = 0
@@ -24,6 +29,17 @@ export function computeRms(buf: Float32Array): number {
  * precision (well under a cent).
  */
 export function detectPitch(buf: Float32Array, sampleRate: number): number | null {
+  // Remove DC offset (common on real mics): a signal riding on an offset
+  // keeps the NSDF positive at every lag, which yields no peaks at all.
+  let mean = 0
+  for (let i = 0; i < buf.length; i++) mean += buf[i]
+  mean /= buf.length
+  if (mean !== 0) {
+    const centered = new Float32Array(buf.length)
+    for (let i = 0; i < buf.length; i++) centered[i] = buf[i] - mean
+    buf = centered
+  }
+
   if (computeRms(buf) < RMS_GATE) return null
 
   const minLag = Math.floor(sampleRate / MAX_FREQ)
