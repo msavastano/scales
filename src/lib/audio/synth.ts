@@ -8,11 +8,23 @@ function getContext(): AudioContext {
   return ctx
 }
 
+/**
+ * Human hearing is far less sensitive to low frequencies, so equal-amplitude
+ * notes sound quieter at the bottom of the neck and get louder up the scale.
+ * Boost the lows and gently trim the highs (~2.4 dB per octave around E4)
+ * to keep perceived volume even across the fretboard.
+ */
+function loudnessCompensation(freq: number): number {
+  const comp = Math.pow(330 / freq, 0.4)
+  return Math.min(2, Math.max(0.75, comp))
+}
+
 /** Play a short guitar-ish pluck. Safe to call from a user-gesture handler or timer. */
 export function playNote(midi: number, duration = 0.4): void {
   const ac = getContext()
   const t = ac.currentTime
   const freq = midiFrequency(midi)
+  const level = loudnessCompensation(freq)
 
   const osc = ac.createOscillator()
   osc.type = 'triangle'
@@ -25,12 +37,12 @@ export function playNote(midi: number, duration = 0.4): void {
 
   const gain = ac.createGain()
   gain.gain.setValueAtTime(0, t)
-  gain.gain.linearRampToValueAtTime(0.35, t + 0.005)
+  gain.gain.linearRampToValueAtTime(0.35 * level, t + 0.005)
   gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
 
   const gain2 = ac.createGain()
   gain2.gain.setValueAtTime(0, t)
-  gain2.gain.linearRampToValueAtTime(0.08, t + 0.005)
+  gain2.gain.linearRampToValueAtTime(0.08 * level, t + 0.005)
   gain2.gain.exponentialRampToValueAtTime(0.0005, t + duration * 0.6)
 
   const filter = ac.createBiquadFilter()
