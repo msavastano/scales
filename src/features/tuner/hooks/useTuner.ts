@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Tuning } from '../../../lib/music/tuning'
-import { nearestString } from '../../../lib/music/tuner'
+import { foldCents, nearestString, IN_TUNE_CENTS } from '../../../lib/music/tuner'
 import { computeRms, detectPitch } from '../../../lib/audio/pitch'
 
 export type TunerStatus = 'idle' | 'requesting' | 'listening' | 'denied' | 'unavailable' | 'error'
@@ -33,6 +33,10 @@ export interface Tuner {
   activeLabel: string | null
   /** True when the mic is open but delivering only digital silence */
   noSignal: boolean
+  /** Manually targeted string index, or null for auto-detection */
+  lockedString: number | null
+  /** Lock the meter to one string (null returns to auto-detection) */
+  setLockedString: (index: number | null) => void
   /** Call from a click handler (needs a user gesture for mic access) */
   start: () => Promise<void>
   stop: () => void
@@ -54,6 +58,8 @@ const MEDIAN_WINDOW = 5
 const SILENCE_RMS = 1e-6
 /** Frames of digital silence (~3 s) before declaring no-signal */
 const SILENCE_FRAMES = 180
+/** Consecutive frames a new string must persist before the display switches */
+const STRING_SWITCH_FRAMES = 3
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
@@ -67,6 +73,7 @@ export function useTuner(tuning: Tuning): Tuner {
   const [devices, setDevices] = useState<MicDevice[]>([])
   const [activeLabel, setActiveLabel] = useState<string | null>(null)
   const [noSignal, setNoSignal] = useState(false)
+  const [lockedString, setLockedString] = useState<number | null>(null)
 
   const tuningRef = useRef(tuning)
   tuningRef.current = tuning
@@ -83,6 +90,10 @@ export function useTuner(tuning: Tuning): Tuner {
   const deviceIdRef = useRef<string | null>(null)
   const silentFramesRef = useRef(0)
   const triedFallbackRef = useRef(false)
+  const lockedRef = useRef<number | null>(null)
+  lockedRef.current = lockedString
+  const shownStringRef = useRef<number | null>(null)
+  const pendingStringRef = useRef<{ index: number; frames: number } | null>(null)
 
   const teardownCapture = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => {
@@ -109,6 +120,8 @@ export function useTuner(tuning: Tuning): Tuner {
     missesRef.current = 0
     levelRef.current = 0
     silentFramesRef.current = 0
+    shownStringRef.current = null
+    pendingStringRef.current = null
     setLevel(0)
     setReading(null)
     setNoSignal(false)
@@ -183,6 +196,57 @@ export function useTuner(tuning: Tuning): Tuner {
     return true
   }, [teardownCapture])
 
+  const buildReading = useCallback((smoothed: number): TunerReading => {
+    const tuning = tuningRef.current
+    const locked = lockedRef.current
+
+    // Manual mode: measure against the chosen string, folding octaves so a
+    // harmonic-jumped detection still reads sensible cents
+    if (locked !== null && locked < tuning.openMidi.length) {
+      const targetMidi = tuning.openMidi[locked]
+      const cents = foldCents(smoothed, targetMidi)
+      return {
+        frequency: smoothed,
+        stringIndex: locked,
+        targetMidi,
+        cents: Math.max(-50, Math.min(50, cents)),
+        inTune: Math.abs(cents) <= IN_TUNE_CENTS,
+      }
+    }
+
+    const match = nearestString(smoothed, tuning)
+    const shown = shownStringRef.current
+    if (shown === null || match.stringIndex === shown) {
+      shownStringRef.current = match.stringIndex
+      pendingStringRef.current = null
+      return { frequency: smoothed, ...match }
+    }
+
+    // A different string was proposed: require it to persist a few frames
+    const pending = pendingStringRef.current
+    if (pending?.index === match.stringIndex) {
+      pending.frames += 1
+      if (pending.frames >= STRING_SWITCH_FRAMES) {
+        shownStringRef.current = match.stringIndex
+        pendingStringRef.current = null
+        return { frequency: smoothed, ...match }
+      }
+    } else {
+      pendingStringRef.current = { index: match.stringIndex, frames: 1 }
+    }
+
+    // Hold the current string until the switch is confirmed
+    const targetMidi = tuning.openMidi[shown]
+    const cents = foldCents(smoothed, targetMidi)
+    return {
+      frequency: smoothed,
+      stringIndex: shown,
+      targetMidi,
+      cents: Math.max(-50, Math.min(50, cents)),
+      inTune: Math.abs(cents) <= IN_TUNE_CENTS,
+    }
+  }, [])
+
   const tick = useCallback(() => {
     const analyser = analyserRef.current
     const ctx = ctxRef.current
@@ -226,20 +290,21 @@ export function useTuner(tuning: Tuning): Tuner {
       recentRef.current.push(freq)
       if (recentRef.current.length > MEDIAN_WINDOW) recentRef.current.shift()
       if (hitsRef.current >= ATTACK_FRAMES) {
-        const smoothed = median(recentRef.current)
-        setReading({ frequency: smoothed, ...nearestString(smoothed, tuningRef.current) })
+        setReading(buildReading(median(recentRef.current)))
       }
     } else {
       hitsRef.current = 0
       missesRef.current += 1
       if (missesRef.current >= RELEASE_FRAMES) {
         recentRef.current = []
+        shownStringRef.current = null
+        pendingStringRef.current = null
         setReading(null)
       }
     }
 
     rafRef.current = requestAnimationFrame(tick)
-  }, [openMic])
+  }, [buildReading, openMic])
 
   const start = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -265,8 +330,26 @@ export function useTuner(tuning: Tuning): Tuner {
     [openMic]
   )
 
+  const setLocked = useCallback((index: number | null) => {
+    shownStringRef.current = null
+    pendingStringRef.current = null
+    setLockedString(index)
+  }, [])
+
   // Release the mic when the screen unmounts
   useEffect(() => stop, [stop])
 
-  return { status, reading, level, devices, activeLabel, noSignal, start, stop, selectDevice }
+  return {
+    status,
+    reading,
+    level,
+    devices,
+    activeLabel,
+    noSignal,
+    lockedString,
+    setLockedString: setLocked,
+    start,
+    stop,
+    selectDevice,
+  }
 }

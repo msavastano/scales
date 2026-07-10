@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { midiFrequency } from './notes'
 import { STANDARD_TUNING, DROP_D_TUNING, TUNINGS, getTuning } from './tuning'
-import { frequencyToMidiFloat, centsFrom, nearestNote, nearestString, IN_TUNE_CENTS } from './tuner'
+import {
+  frequencyToMidiFloat,
+  centsFrom,
+  foldCents,
+  nearestNote,
+  nearestString,
+  IN_TUNE_CENTS,
+} from './tuner'
 
 describe('frequencyToMidiFloat', () => {
   it('maps A4 = 440 Hz to midi 69', () => {
@@ -89,12 +96,67 @@ describe('nearestString', () => {
     expect(match.inTune).toBe(false)
   })
 
+  it('keeps the G string when its 2nd harmonic takes over (G -> E4 regression)', () => {
+    // A decaying G string's 392 Hz overtone must not read as the E4 string
+    const match = nearestString(392, STANDARD_TUNING)
+    expect(match.stringIndex).toBe(3)
+    expect(match.targetMidi).toBe(55)
+    expect(match.inTune).toBe(true)
+  })
+
+  it('maps dominant harmonics of each string back to that string', () => {
+    const harmonics: Array<[number, number]> = [
+      [82.41 * 2, 0], // low E 2nd
+      [110 * 2, 1], // A 2nd
+      [146.83 * 2, 2], // D 2nd
+      [196 * 3, 3], // G 3rd
+      [246.94 * 2, 4], // B 2nd
+      [329.63 * 2, 5], // high E 2nd
+    ]
+    for (const [freq, stringIndex] of harmonics) {
+      const match = nearestString(freq, STANDARD_TUNING)
+      expect(match.stringIndex).toBe(stringIndex)
+      expect(Math.abs(match.cents)).toBeLessThan(5)
+    }
+  })
+
+  it('never reinterprets a note played near a real string', () => {
+    // E4 is nearly A2's 3rd harmonic, but a played E4 must stay E4
+    expect(nearestString(329.63, STANDARD_TUNING).stringIndex).toBe(5)
+    const sharpE4 = nearestString(335, STANDARD_TUNING)
+    expect(sharpE4.stringIndex).toBe(5)
+    expect(sharpE4.cents).toBeGreaterThan(0)
+  })
+
   it('decides inTune on the threshold', () => {
     const target = STANDARD_TUNING.openMidi[4] // B3
     const justIn = midiFrequency(target) * 2 ** ((IN_TUNE_CENTS - 1) / 1200)
     const justOut = midiFrequency(target) * 2 ** ((IN_TUNE_CENTS + 1) / 1200)
     expect(nearestString(justIn, STANDARD_TUNING).inTune).toBe(true)
     expect(nearestString(justOut, STANDARD_TUNING).inTune).toBe(false)
+  })
+})
+
+describe('foldCents', () => {
+  it('folds harmonic octaves onto the target', () => {
+    expect(Math.abs(foldCents(392, 55))).toBeLessThan(1) // G4 vs G3
+    expect(Math.abs(foldCents(196, 55))).toBeLessThan(1) // G3 vs G3
+    expect(Math.abs(foldCents(82.41, 64))).toBeLessThan(2) // E2 vs E4
+  })
+
+  it('preserves the deviation sign across octaves', () => {
+    const sharpOctaveUp = midiFrequency(57) * 2 ** (30 / 1200) // A3 +30 cents
+    expect(foldCents(sharpOctaveUp, 45)).toBeCloseTo(30, 1)
+    const flatOctaveUp = midiFrequency(57) * 2 ** (-30 / 1200)
+    expect(foldCents(flatOctaveUp, 45)).toBeCloseTo(-30, 1)
+  })
+
+  it('stays within [-600, 600)', () => {
+    for (const freq of [70, 130, 333, 777, 990]) {
+      const folded = foldCents(freq, 55)
+      expect(folded).toBeGreaterThanOrEqual(-600)
+      expect(folded).toBeLessThan(600)
+    }
   })
 })
 

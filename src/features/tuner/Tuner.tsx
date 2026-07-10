@@ -24,6 +24,12 @@ export function Tuner() {
   const tuning = getTuning(tuningId)
   const tuner = useTuner(tuning)
 
+  const changeTuning = (id: string) => {
+    // A string index means a different note in another tuning
+    tuner.setLockedString(null)
+    setTuningId(id)
+  }
+
   const listening = tuner.status === 'listening'
   const failure = STATUS_MESSAGES[tuner.status]
 
@@ -42,7 +48,7 @@ export function Tuner() {
           </p>
         </div>
         <div className="flex flex-wrap gap-4 items-end w-full lg:w-auto">
-          <TuningSelector tuningId={tuningId} onChange={setTuningId} />
+          <TuningSelector tuningId={tuningId} onChange={changeTuning} />
           <button
             type="button"
             onClick={() => (listening ? tuner.stop() : void tuner.start())}
@@ -118,6 +124,8 @@ export function Tuner() {
         tuning={tuning}
         activeStringIndex={tuner.reading?.stringIndex ?? null}
         inTune={tuner.reading?.inTune ?? false}
+        lockedIndex={tuner.lockedString}
+        onLockChange={tuner.setLockedString}
       />
     </section>
   )
