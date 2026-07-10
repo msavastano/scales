@@ -4,6 +4,14 @@ import { useTuner } from './hooks/useTuner'
 import { TunerMeter } from './components/TunerMeter'
 import { StringIndicators } from './components/StringIndicators'
 import { TuningSelector } from './components/TuningSelector'
+import { MicSelector } from './components/MicSelector'
+
+/** Map RMS to a bar width: -60 dBFS -> 0%, 0 dBFS -> 100% */
+function levelPercent(rms: number): number {
+  if (rms <= 0) return 0
+  const db = 20 * Math.log10(rms)
+  return Math.max(0, Math.min(100, 100 + (db / 60) * 100))
+}
 
 const STATUS_MESSAGES: Record<string, string> = {
   denied: "Microphone access was denied. Allow it in your browser's site settings and try again.",
@@ -64,18 +72,45 @@ export function Tuner() {
         </div>
       )}
 
+      {listening && tuner.noSignal && (
+        <div className="glass-panel rounded-xl p-4 border border-error/40 text-error flex items-start gap-3">
+          <span className="material-symbols-outlined">volume_off</span>
+          <div className="text-sm space-y-1">
+            <p>
+              The microphone is open but no sound is arriving. Try a different microphone below,
+              and check your system sound settings — make sure the right input device is selected
+              and its input volume is turned up.
+            </p>
+            {tuner.activeLabel && (
+              <p className="text-on-surface-variant">
+                Listening to: <span className="font-mono">{tuner.activeLabel}</span>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <TunerMeter reading={tuner.reading} listening={listening} />
 
       {listening && (
-        <div className="flex items-center gap-3 px-2" aria-hidden="true">
-          <span className="material-symbols-outlined text-outline text-xl">mic</span>
-          <div className="flex-1 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-100"
-              style={{ width: `${Math.min(100, Math.sqrt(tuner.level) * 150)}%` }}
-            />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-2">
+          <div className="flex items-center gap-3 flex-1 min-w-48" aria-hidden="true">
+            <span className="material-symbols-outlined text-outline text-xl">mic</span>
+            <div className="flex-1 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-100"
+                style={{ width: `${levelPercent(tuner.level)}%` }}
+              />
+            </div>
+            <span className="font-mono text-label-sm text-outline">INPUT</span>
           </div>
-          <span className="font-mono text-label-sm text-outline">INPUT</span>
+          {tuner.devices.length > 1 && (
+            <MicSelector
+              devices={tuner.devices}
+              activeLabel={tuner.activeLabel}
+              onChange={(id) => void tuner.selectDevice(id)}
+            />
+          )}
         </div>
       )}
 
