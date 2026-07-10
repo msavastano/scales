@@ -54,6 +54,23 @@ describe('detectPitch', () => {
     expect(centsError(detected!, 82.41)).toBeLessThan(3)
   })
 
+  it('detects a quiet real-mic-level signal (AGC disabled)', () => {
+    // Regression: an acoustic guitar into a laptop mic with autoGainControl
+    // off arrives around RMS 0.002-0.01 and must not be gated as silence
+    const quiet = synthTone(110, 48000, [0.008]) // RMS ≈ 0.0057
+    const detected = detectPitch(quiet, 48000)
+    expect(detected).not.toBeNull()
+    expect(centsError(detected!, 110)).toBeLessThan(3)
+  })
+
+  it('detects a signal riding on a DC offset', () => {
+    const buf = synthTone(110, 48000, [0.3])
+    for (let i = 0; i < buf.length; i++) buf[i] += 0.25
+    const detected = detectPitch(buf, 48000)
+    expect(detected).not.toBeNull()
+    expect(centsError(detected!, 110)).toBeLessThan(3)
+  })
+
   it('returns null for silence', () => {
     expect(detectPitch(new Float32Array(2048), 48000)).toBeNull()
   })

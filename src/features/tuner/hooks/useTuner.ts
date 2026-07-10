@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Tuning } from '../../../lib/music/tuning'
 import { nearestString } from '../../../lib/music/tuner'
-import { detectPitch } from '../../../lib/audio/pitch'
+import { computeRms, detectPitch } from '../../../lib/audio/pitch'
 
 export type TunerStatus = 'idle' | 'requesting' | 'listening' | 'denied' | 'unavailable' | 'error'
 
@@ -20,6 +20,8 @@ export interface Tuner {
   status: TunerStatus
   /** Latest reading, or null while silent */
   reading: TunerReading | null
+  /** Smoothed mic input level (RMS, ~0..1) while listening */
+  level: number
   /** Call from a click handler (needs a user gesture for mic access) */
   start: () => Promise<void>
   stop: () => void
@@ -41,6 +43,8 @@ function median(values: number[]): number {
 export function useTuner(tuning: Tuning): Tuner {
   const [status, setStatus] = useState<TunerStatus>('idle')
   const [reading, setReading] = useState<TunerReading | null>(null)
+  const [level, setLevel] = useState(0)
+  const levelRef = useRef(0)
 
   const tuningRef = useRef(tuning)
   tuningRef.current = tuning
@@ -69,6 +73,8 @@ export function useTuner(tuning: Tuning): Tuner {
     recentRef.current = []
     hitsRef.current = 0
     missesRef.current = 0
+    levelRef.current = 0
+    setLevel(0)
     setReading(null)
     setStatus('idle')
   }, [])
@@ -80,6 +86,11 @@ export function useTuner(tuning: Tuning): Tuner {
 
     const buf = bufRef.current
     analyser.getFloatTimeDomainData(buf)
+
+    // Exponentially smoothed input level so the UI can show signal arriving
+    levelRef.current = levelRef.current * 0.8 + computeRms(buf) * 0.2
+    setLevel(levelRef.current)
+
     const freq = detectPitch(buf, ctx.sampleRate)
 
     if (freq !== null) {
@@ -124,6 +135,9 @@ export function useTuner(tuning: Tuning): Tuner {
     }
 
     const ctx = new AudioContext()
+    // Safari can consume the gesture during the getUserMedia await, leaving
+    // the context suspended — the analyser would then read only zeros.
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
     const source = ctx.createMediaStreamSource(stream)
     // Attenuate upper harmonics and pick noise before analysis
     const lowpass = ctx.createBiquadFilter()
@@ -145,5 +159,5 @@ export function useTuner(tuning: Tuning): Tuner {
   // Release the mic when the screen unmounts
   useEffect(() => stop, [stop])
 
-  return { status, reading, start, stop }
+  return { status, reading, level, start, stop }
 }

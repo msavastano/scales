@@ -66,6 +66,19 @@ export function Tuner() {
 
       <TunerMeter reading={tuner.reading} listening={listening} />
 
+      {listening && (
+        <div className="flex items-center gap-3 px-2" aria-hidden="true">
+          <span className="material-symbols-outlined text-outline text-xl">mic</span>
+          <div className="flex-1 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-100"
+              style={{ width: `${Math.min(100, Math.sqrt(tuner.level) * 150)}%` }}
+            />
+          </div>
+          <span className="font-mono text-label-sm text-outline">INPUT</span>
+        </div>
+      )}
+
       <StringIndicators
         tuning={tuning}
         activeStringIndex={tuner.reading?.stringIndex ?? null}
